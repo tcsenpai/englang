@@ -184,4 +184,5 @@ cp -r "$RUN_DIR" "$LATEST_DIR"
 echo "Latest results copied to: $LATEST_DIR"
 
 echo ""
-echo "Run './benchmark/generate-report.py' to generate plot and report"
+echo "Generating report and plot..."
+"$SCRIPT_DIR/generate-report.py" "$LATEST_DIR"
