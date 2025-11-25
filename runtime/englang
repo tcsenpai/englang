@@ -1,0 +1,317 @@
+#!/usr/bin/env bash
+set -e
+set -u
+set -o pipefail
+
+# ============================================
+# ENGLANG v2.0 - Natural Language Runtime
+# ============================================
+
+VERSION="2.0.0"
+
+# Set paths early for cleanup
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+LIBS_DIR="$SCRIPT_DIR/libs"
+ASSEMBLED_FILE="$LIBS_DIR/.assembled_prompt.md"
+
+# ============================================
+# Cleanup function - runs on exit
+# ============================================
+cleanup() {
+    local exit_code=$?
+
+    # Remove assembled prompt
+    [ -f "$ASSEMBLED_FILE" ] && rm -f "$ASSEMBLED_FILE"
+
+    # Remove generated ENV.md
+    [ -f "$LIBS_DIR/ENV.md" ] && rm -f "$LIBS_DIR/ENV.md"
+
+    # Remove copied prompt
+    [ -f "$LIBS_DIR/exec/PROMPT.md" ] && rm -f "$LIBS_DIR/exec/PROMPT.md"
+
+    exit $exit_code
+}
+
+# Register cleanup trap
+trap cleanup EXIT INT TERM
+
+# ============================================
+# Usage
+# ============================================
+usage() {
+    cat <<EOF
+englang v${VERSION} - Natural Language Runtime
+
+Usage: englang <script.md> [options]
+
+Options:
+    --debug         Show assembled prompt instead of executing
+    --dry-run       Parse and validate without executing
+    --verbose       Show execution details
+    --var KEY=VAL   Set variable (can be repeated)
+    --help          Show this help
+
+Examples:
+    englang hello.md
+    englang script.md --debug
+    englang script.md --var name=World --var count=5
+EOF
+    exit 0
+}
+
+# ============================================
+# Argument parsing
+# ============================================
+PROMPTFILE=""
+DEBUG_MODE=false
+DRY_RUN=false
+VERBOSE=false
+declare -A USER_VARS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --help|-h)
+            usage
+            ;;
+        --debug)
+            DEBUG_MODE=true
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        --verbose|-v)
+            VERBOSE=true
+            shift
+            ;;
+        --var)
+            if [[ -z "${2:-}" ]] || [[ ! "$2" =~ ^[a-zA-Z_][a-zA-Z0-9_]*=.* ]]; then
+                echo "Error: --var requires KEY=VALUE format" >&2
+                exit 1
+            fi
+            key="${2%%=*}"
+            value="${2#*=}"
+            USER_VARS["$key"]="$value"
+            shift 2
+            ;;
+        --version)
+            echo "englang v${VERSION}"
+            exit 0
+            ;;
+        -*)
+            echo "Error: unknown option $1" >&2
+            exit 1
+            ;;
+        *)
+            if [[ -n "$PROMPTFILE" ]]; then
+                echo "Error: multiple script files specified" >&2
+                exit 1
+            fi
+            PROMPTFILE="$1"
+            shift
+            ;;
+    esac
+done
+
+# Validate script file
+if [[ -z "$PROMPTFILE" ]]; then
+    echo "Error: no script file specified" >&2
+    usage
+fi
+
+if [[ ! "$PROMPTFILE" =~ \.md$ ]]; then
+    echo "Error: script must have .md extension" >&2
+    exit 1
+fi
+
+if [[ ! -f "$PROMPTFILE" ]]; then
+    echo "Error: file '$PROMPTFILE' not found" >&2
+    exit 1
+fi
+
+# ============================================
+# Environment Setup
+# ============================================
+CUR_DIR="$(pwd)"
+USERNAME="$(whoami)"
+TIMESTAMP="$(date -Iseconds)"
+SCRIPT_NAME="$(basename "$PROMPTFILE" .md)"
+
+# Generate ENV.md
+cat > "$LIBS_DIR/ENV.md" <<EOF
+# Runtime Environment
+
+| Variable | Value |
+|----------|-------|
+| CWD | $CUR_DIR |
+| RUNTIME_DIR | $SCRIPT_DIR |
+| USER | $USERNAME |
+| TIMESTAMP | $TIMESTAMP |
+| SCRIPT | $SCRIPT_NAME |
+| VERSION | $VERSION |
+EOF
+
+# Add user variables
+if [[ ${#USER_VARS[@]} -gt 0 ]]; then
+    echo "" >> "$LIBS_DIR/ENV.md"
+    echo "## User Variables" >> "$LIBS_DIR/ENV.md"
+    echo "" >> "$LIBS_DIR/ENV.md"
+    echo "| Variable | Value |" >> "$LIBS_DIR/ENV.md"
+    echo "|----------|-------|" >> "$LIBS_DIR/ENV.md"
+    for key in "${!USER_VARS[@]}"; do
+        echo "| $key | ${USER_VARS[$key]} |" >> "$LIBS_DIR/ENV.md"
+    done
+fi
+
+# Copy prompt file
+cp "$PROMPTFILE" "$LIBS_DIR/exec/PROMPT.md"
+
+# ============================================
+# Frontmatter Extraction
+# ============================================
+extract_frontmatter() {
+    local file="$1"
+    local in_frontmatter=false
+    local frontmatter=""
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" == "---" ]]; then
+            if $in_frontmatter; then
+                # End of frontmatter
+                echo "$frontmatter"
+                return 0
+            else
+                # Start of frontmatter
+                in_frontmatter=true
+            fi
+        elif $in_frontmatter; then
+            frontmatter+="$line"$'\n'
+        fi
+    done < "$file"
+
+    # No frontmatter found
+    return 1
+}
+
+# Parse mode from frontmatter
+get_mode() {
+    local frontmatter="$1"
+    echo "$frontmatter" | grep -E "^mode:" | sed 's/mode:[[:space:]]*//' | tr -d ' ' || echo "normal"
+}
+
+# ============================================
+# Include Resolution (recursive)
+# ============================================
+expand_includes() {
+    local file="$1"
+    local base_dir="$2"
+    local depth="${3:-0}"
+
+    # Prevent infinite recursion
+    if [[ $depth -gt 10 ]]; then
+        echo "Error: include depth exceeded (circular reference?)" >&2
+        return 1
+    fi
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # Match @include patterns
+        if [[ "$line" =~ ^[[:space:]]*@([^[:space:]:]+\.md)[[:space:]]*$ ]]; then
+            local include_path="${BASH_REMATCH[1]}"
+            local full_path=""
+
+            # Check relative to base_dir first, then LIBS_DIR
+            if [[ -f "$base_dir/$include_path" ]]; then
+                full_path="$base_dir/$include_path"
+            elif [[ -f "$LIBS_DIR/$include_path" ]]; then
+                full_path="$LIBS_DIR/$include_path"
+            else
+                echo "Error: included file not found: $include_path" >&2
+                return 1
+            fi
+
+            # Recursively expand
+            local include_dir
+            include_dir="$(dirname "$full_path")"
+            expand_includes "$full_path" "$include_dir" $((depth + 1))
+        else
+            # Variable substitution for @ENV:varname and @VAR:varname
+            local processed_line="$line"
+
+            # @ENV:VAR -> environment variable
+            while [[ "$processed_line" =~ @ENV:([a-zA-Z_][a-zA-Z0-9_]*) ]]; do
+                local var_name="${BASH_REMATCH[1]}"
+                local var_value="${!var_name:-}"
+                processed_line="${processed_line/@ENV:$var_name/$var_value}"
+            done
+
+            # @VAR:name -> user variable from --var
+            while [[ "$processed_line" =~ @VAR:([a-zA-Z_][a-zA-Z0-9_]*) ]]; do
+                local var_name="${BASH_REMATCH[1]}"
+                local var_value="${USER_VARS[$var_name]:-}"
+                processed_line="${processed_line/@VAR:$var_name/$var_value}"
+            done
+
+            echo "$processed_line"
+        fi
+    done < "$file"
+}
+
+# ============================================
+# Assemble Prompt
+# ============================================
+$VERBOSE && echo "Assembling prompt..." >&2
+
+if ! expand_includes "$LIBS_DIR/MAIN.md" "$LIBS_DIR" > "$ASSEMBLED_FILE"; then
+    echo "Error: failed to assemble prompt" >&2
+    exit 1
+fi
+
+# ============================================
+# Extract execution mode
+# ============================================
+MODE="normal"
+if frontmatter=$(extract_frontmatter "$PROMPTFILE" 2>/dev/null); then
+    MODE=$(get_mode "$frontmatter")
+    $VERBOSE && echo "Detected mode: $MODE" >&2
+fi
+
+# ============================================
+# Dry run - just validate
+# ============================================
+if $DRY_RUN; then
+    echo "Dry run - validation passed"
+    echo "  Script: $PROMPTFILE"
+    echo "  Mode: $MODE"
+    echo "  Variables: ${#USER_VARS[@]}"
+    echo "  Assembled size: $(wc -c < "$ASSEMBLED_FILE") bytes"
+    exit 0
+fi
+
+# ============================================
+# Debug mode - show assembled prompt
+# ============================================
+if $DEBUG_MODE; then
+    DEBUG_CMD=(
+        claude
+        'You are the englang runtime. Print the EXACT content that was loaded from MAIN.md (including all expanded @includes like ENV.md, std/*.md, and PROMPT.md). Output it as a markdown code block. Do not summarize, do not explain - just show the raw assembled prompt you received.'
+        --system-prompt-file
+        "$ASSEMBLED_FILE"
+    )
+    "${DEBUG_CMD[@]}"
+    exit $?
+fi
+
+# ============================================
+# Execute
+# ============================================
+$VERBOSE && echo "Executing in $MODE mode..." >&2
+
+COMMAND=(
+    claude
+    "execute"
+    --system-prompt-file
+    "$ASSEMBLED_FILE"
+)
+
+"${COMMAND[@]}"
