@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Shebang wrapper for englang scripts
+# Usage: #!/usr/bin/env englang-run
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+
+exec "$SCRIPT_DIR/englang" "$@"

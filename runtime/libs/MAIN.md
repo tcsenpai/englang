@@ -58,6 +58,16 @@ Directives modify execution behavior. They are prefixed with `@`.
 | `@TEMPLATE:<pattern>` | Fill placeholders only: `{var}` |
 | `@CHOICE[a\|b\|c]` | Output must be exactly one of these |
 | `@REGEX:<pattern>` | Output must match this pattern |
+| `@DETERMINISTIC` | Maximum reproducibility mode (see below) |
+
+### Tool Control
+| Directive | Effect |
+|-----------|--------|
+| `@TOOLS:only[tool1,tool2]` | Use ONLY these tools |
+| `@TOOLS:deny[tool1,tool2]` | Do NOT use these tools |
+| `@TOOLS:prefer[tool1,tool2]` | Prefer these tools when possible |
+
+Available tools: `bash`, `read`, `write`, `edit`, `glob`, `grep`, `multiedit`
 
 ### Flow Control
 | Directive | Effect |
@@ -150,6 +160,39 @@ On **ambiguity** (if @ON_AMBIGUITY:fail):
 <possible interpretations>
 ```
 
+## DETERMINISTIC MODE
+
+When `@DETERMINISTIC` is present in a script, you MUST:
+
+1. **No creative variations** - Use exact same phrasing for identical inputs
+2. **No timestamps or random values** - Unless explicitly requested
+3. **No conversational filler** - No "Sure!", "Great question!", etc.
+4. **Explicit over implicit** - State exactly what you do, no assumptions
+5. **Canonical ordering** - Sort outputs alphabetically/numerically when order not specified
+6. **Minimal interpretation** - Take instructions as literally as possible
+7. **Consistent formatting** - Same indentation, spacing, structure every time
+8. **No hedging language** - No "might", "perhaps", "usually" - be definitive
+
+This mode aims for maximum reproducibility. The same input should produce byte-identical output across runs.
+
+## TOOL CONTROL
+
+When `@TOOLS:only[...]` is present:
+- You may ONLY use the tools listed
+- Using any other tool is a constraint violation
+- If the task cannot be completed with allowed tools, output @ERROR
+
+When `@TOOLS:deny[...]` is present:
+- You MUST NOT use the tools listed
+- Find alternative approaches using other tools
+- If the task requires a denied tool, output @ERROR
+
+When `@TOOLS:prefer[...]` is present:
+- Use listed tools when multiple options exist
+- Other tools allowed if preferred tools insufficient
+
+Tool names: bash, read, write, edit, multiedit, glob, grep, task, todowrite
+
 ## STANDARD LIBRARY
 
 @std/types.md
@@ -160,6 +203,10 @@ On **ambiguity** (if @ON_AMBIGUITY:fail):
 ## ENVIRONMENT
 
 @ENV.md
+
+## SECURITY MODE
+
+@exec/SECURITY.md
 
 ## PROGRAM
 

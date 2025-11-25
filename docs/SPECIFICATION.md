@@ -1,4 +1,4 @@
-# ENGLANG Language Specification v2.0
+# ENGLANG Language Specification v2.2
 
 ## Overview
 
@@ -54,6 +54,8 @@ YAML metadata between `---` delimiters:
 | `mode` | enum | No | `strict`, `normal`, `creative` |
 | `expects` | string | No | Input description |
 | `returns` | string | No | Output description |
+| `dangerous` | bool | No | Enable `--dangerously-skip-permissions` |
+| `autosecured` | bool | No | Enable security audit mode |
 
 ### CONTEXT
 
@@ -116,11 +118,30 @@ Format specification for results.
 
 | Directive | Description |
 |-----------|-------------|
+| `@DETERMINISTIC` | Maximum reproducibility mode |
 | `@LITERAL` | Take following text literally |
 | `@VERBATIM:<text>` | Output exact text |
 | `@TEMPLATE:<pattern>` | Fill placeholders only |
 | `@CHOICE[a\|b\|c]` | Output must be one of these |
 | `@REGEX:<pattern>` | Output must match pattern |
+
+The `@DETERMINISTIC` directive enforces:
+- No creative variations or conversational filler
+- No timestamps or random values unless requested
+- Canonical ordering (alphabetical/numerical) when order not specified
+- Consistent formatting across runs
+- Minimal interpretation of instructions
+- No hedging language
+
+### Tool Control
+
+| Directive | Description |
+|-----------|-------------|
+| `@TOOLS:only[tools]` | Use ONLY listed tools |
+| `@TOOLS:deny[tools]` | Do NOT use listed tools |
+| `@TOOLS:prefer[tools]` | Prefer listed tools when possible |
+
+Available tool names: bash, read, write, edit, multiedit, glob, grep, task, todowrite
 
 ### Control Flow
 
@@ -175,6 +196,54 @@ Format specification for results.
 - Interpretation latitude
 - Explanations welcome
 - Best for generative tasks
+
+## Security Modes
+
+### Dangerous Mode
+
+Enables `--dangerously-skip-permissions` for unattended execution.
+
+Set via frontmatter:
+```yaml
+---
+dangerous: true
+---
+```
+
+Or CLI flag: `--dangerous`
+
+Use only for trusted scripts in controlled environments.
+
+### Autosecured Mode
+
+Enables security audit protocol. Claude analyzes all sensitive operations before execution.
+
+Set via frontmatter:
+```yaml
+---
+autosecured: true
+---
+```
+
+Or CLI flag: `--autosecured`
+
+In this mode, before each sensitive operation Claude outputs:
+```
+[SECURITY AUDIT]
+Operation: <description>
+Risk Level: LOW | MEDIUM | HIGH | CRITICAL
+Assessment: <reasoning>
+Decision: PROCEED | WARN | BLOCK
+```
+
+Operations that may be blocked:
+- Reading sensitive system files
+- Writing to system directories
+- Executing obfuscated commands
+- Data exfiltration attempts
+- Privilege escalation
+
+Note: `--dangerous` and `--autosecured` are mutually exclusive.
 
 ## Include System
 
@@ -247,15 +316,24 @@ Running as user: @ENV:USER
 ## CLI Reference
 
 ```
-englang v2.0.0 - Natural Language Runtime
+englang v2.2.0 - Natural Language Runtime
 
 Usage: englang <script.md> [options]
+       englang <command> [options]
+
+Commands:
+    init [name]     Create a new script template
+    lint <file>     Validate script syntax without executing
+    repl            Interactive REPL mode
 
 Options:
-    --debug         Show assembled prompt
+    --debug         Show assembled prompt (no API call)
     --dry-run       Parse and validate only
     --verbose       Show execution details
     --var KEY=VAL   Set variable (repeatable)
+    -o, --output    Write output to file
+    --dangerous     Skip permission prompts
+    --autosecured   Enable security audit mode
     --version       Show version
     --help          Show help
 ```
@@ -321,6 +399,109 @@ Classify the sentiment.
 5. **Test with --dry-run** before execution
 6. **Use --debug** to verify assembled prompt
 
+## CLI Commands
+
+### init
+
+Create a new script from template:
+
+```bash
+englang init my-script
+# Creates my-script.md with boilerplate
+```
+
+### lint
+
+Validate script syntax without executing:
+
+```bash
+englang lint script.md
+# Checks: frontmatter, directives, includes, structure
+```
+
+### repl
+
+Interactive mode for experimentation:
+
+```bash
+englang repl
+# Type script, then END to execute
+# Commands: :quit, :mode strict, :clear, :help
+```
+
+## Pipe Support
+
+Inject stdin data into scripts:
+
+```bash
+echo '{"name": "John"}' | englang transform.md
+# Use @STDIN in script to access piped data
+```
+
+Example script:
+```markdown
+# TASK
+Parse the JSON and extract the name.
+
+# INPUT
+@STDIN
+
+# OUTPUT
+@FORMAT:text
+```
+
+## Output to File
+
+Save output directly to a file:
+
+```bash
+englang script.md -o result.json
+englang script.md --output report.txt
+```
+
+## Remote Includes
+
+Include files from URLs:
+
+```markdown
+# Include from GitHub raw
+@https://raw.githubusercontent.com/user/repo/main/lib.md
+
+# Include from any URL
+@https://example.com/shared-constraints.md
+```
+
+Remote includes are:
+- Fetched with curl (10s timeout)
+- Cached per execution (not persisted)
+- Recursively expanded
+
+## Shebang Support
+
+Make englang scripts directly executable:
+
+```markdown
+#!/usr/bin/env englang-run
+---
+name: my-script
+mode: strict
+---
+
+# TASK
+Do something.
+```
+
+Then run directly:
+```bash
+chmod +x my-script.md
+./my-script.md
+```
+
+**Setup**: Add englang's runtime directory to PATH:
+```bash
+export PATH="$PATH:/path/to/englang/runtime"
+```
+
 ## Future Roadmap
 
 - [ ] `@FILE:path` directive for file loading
@@ -328,4 +509,4 @@ Classify the sentiment.
 - [ ] `@ASSERT` post-condition validation
 - [ ] Output schema validation
 - [ ] Streaming output support
-- [ ] Interactive mode
+- [ ] Watch mode for auto-reload

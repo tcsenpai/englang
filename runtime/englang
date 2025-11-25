@@ -4,10 +4,10 @@ set -u
 set -o pipefail
 
 # ============================================
-# ENGLANG v2.0 - Natural Language Runtime
+# ENGLANG v2.1 - Natural Language Runtime
 # ============================================
 
-VERSION="2.0.0"
+VERSION="2.2.0"
 
 # Set paths early for cleanup
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
@@ -29,6 +29,12 @@ cleanup() {
     # Remove copied prompt
     [ -f "$LIBS_DIR/exec/PROMPT.md" ] && rm -f "$LIBS_DIR/exec/PROMPT.md"
 
+    # Remove stdin temp file
+    [ -f "$LIBS_DIR/exec/STDIN.md" ] && rm -f "$LIBS_DIR/exec/STDIN.md"
+
+    # Remove security file
+    [ -f "$LIBS_DIR/exec/SECURITY.md" ] && rm -f "$LIBS_DIR/exec/SECURITY.md"
+
     exit $exit_code
 }
 
@@ -43,20 +49,283 @@ usage() {
 englang v${VERSION} - Natural Language Runtime
 
 Usage: englang <script.md> [options]
+       englang <command> [options]
+
+Commands:
+    init [name]     Create a new script template
+    lint <file>     Validate script syntax without executing
+    repl            Interactive REPL mode
 
 Options:
-    --debug         Show assembled prompt instead of executing
+    --debug         Show assembled prompt (no API call)
     --dry-run       Parse and validate without executing
     --verbose       Show execution details
     --var KEY=VAL   Set variable (can be repeated)
+    -o, --output    Write output to file
+    --dangerous     Skip permission prompts (use with caution!)
+    --autosecured   Enable security audit mode
     --help          Show this help
+
+Pipe Support:
+    echo "data" | englang script.md    # Inject stdin as @STDIN
 
 Examples:
     englang hello.md
     englang script.md --debug
     englang script.md --var name=World --var count=5
+    englang script.md -o result.json
+    echo '{"data": 1}' | englang transform.md
+    englang init my-script
+    englang lint script.md
+    englang repl
 EOF
     exit 0
+}
+
+# ============================================
+# Init command - scaffold new script
+# ============================================
+cmd_init() {
+    local name="${1:-new-script}"
+    local filename="${name}.md"
+
+    if [[ -f "$filename" ]]; then
+        echo "Error: $filename already exists" >&2
+        exit 1
+    fi
+
+    cat > "$filename" <<'EOF'
+---
+name: {{NAME}}
+version: 1.0
+mode: strict
+expects: description of expected input
+returns: description of expected output
+---
+
+# CONTEXT
+
+Background information needed to understand the task.
+
+# CONSTRAINTS
+
+- MUST: required behaviors
+- MUST NOT: forbidden behaviors
+- SHOULD: recommended behaviors
+
+# TASK
+
+Describe what to do here.
+
+# INPUT
+
+@STDIN
+
+# OUTPUT
+
+@FORMAT:json
+EOF
+
+    # Replace placeholder
+    sed -i "s/{{NAME}}/$name/" "$filename"
+
+    echo "Created $filename"
+    exit 0
+}
+
+# ============================================
+# Lint command - validate without executing
+# ============================================
+cmd_lint() {
+    local file="$1"
+
+    if [[ -z "$file" ]]; then
+        echo "Error: lint requires a file argument" >&2
+        exit 1
+    fi
+
+    if [[ ! -f "$file" ]]; then
+        echo "Error: file '$file' not found" >&2
+        exit 1
+    fi
+
+    local errors=0
+    local warnings=0
+
+    echo "Linting $file..."
+
+    # Check extension
+    if [[ ! "$file" =~ \.md$ ]]; then
+        echo "  ERROR: File must have .md extension"
+        ((errors++))
+    fi
+
+    # Check for frontmatter
+    if ! head -1 "$file" | grep -q "^---$"; then
+        echo "  WARNING: No frontmatter found (recommended)"
+        ((warnings++))
+    else
+        # Validate frontmatter closes
+        if ! grep -n "^---$" "$file" | head -2 | tail -1 | grep -q "^[0-9]"; then
+            echo "  ERROR: Frontmatter not closed (missing second ---)"
+            ((errors++))
+        fi
+    fi
+
+    # Check for TASK section
+    if ! grep -q "^# TASK" "$file"; then
+        echo "  WARNING: No # TASK section found"
+        ((warnings++))
+    fi
+
+    # Check for unknown directives
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^@([A-Z_]+) ]]; then
+            local directive="${BASH_REMATCH[1]}"
+            case "$directive" in
+                FORMAT|PATTERN|CHOICE|LITERAL|VERBATIM|TEMPLATE|REGEX|\
+                IF|ELSE|ENDIF|FOREACH|ENDFOR|\
+                ON_AMBIGUITY|ON_ERROR|ON_EMPTY|ON_MISSING|\
+                ASSERT|EXPECTS|RETURNS|TYPE|\
+                CONSTRAINTS|VALIDATE|SECTION|STREAM|\
+                PRETTY|MINIFY|WRAP|TRUNCATE|STDIN|VAR|ENV|FILE|\
+                DETERMINISTIC|TOOLS)
+                    # Known directive
+                    ;;
+                *)
+                    echo "  WARNING: Unknown directive @$directive"
+                    ((warnings++))
+                    ;;
+            esac
+        fi
+    done < "$file"
+
+    # Check for unclosed @IF
+    local if_count
+    local endif_count
+    if_count=$(grep -c "^@IF:" "$file" 2>/dev/null) || if_count=0
+    endif_count=$(grep -c "^@ENDIF" "$file" 2>/dev/null) || endif_count=0
+    if [[ "$if_count" -ne "$endif_count" ]]; then
+        echo "  ERROR: Mismatched @IF/@ENDIF ($if_count IF, $endif_count ENDIF)"
+        ((errors++))
+    fi
+
+    # Check includes exist
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^[[:space:]]*@([^[:space:]:]+\.md)[[:space:]]*$ ]]; then
+            local include="${BASH_REMATCH[1]}"
+            # Skip std library and runtime files
+            if [[ ! "$include" =~ ^(std/|ENV\.md|exec/) ]]; then
+                if [[ ! -f "$include" ]] && [[ ! -f "$(dirname "$file")/$include" ]]; then
+                    echo "  WARNING: Include not found: $include"
+                    ((warnings++))
+                fi
+            fi
+        fi
+    done < "$file"
+
+    # Check for URL includes
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^[[:space:]]*@(https?://[^[:space:]]+)[[:space:]]*$ ]]; then
+            echo "  INFO: Remote include: ${BASH_REMATCH[1]}"
+        fi
+    done < "$file"
+
+    echo ""
+    if [[ $errors -gt 0 ]]; then
+        echo "FAILED: $errors error(s), $warnings warning(s)"
+        exit 1
+    elif [[ $warnings -gt 0 ]]; then
+        echo "PASSED with $warnings warning(s)"
+        exit 0
+    else
+        echo "PASSED: No issues found"
+        exit 0
+    fi
+}
+
+# ============================================
+# REPL command - interactive mode
+# ============================================
+cmd_repl() {
+    echo "englang v${VERSION} REPL"
+    echo "Type your script, then 'END' on a new line to execute."
+    echo "Commands: :quit, :help, :mode <strict|normal|creative>"
+    echo ""
+
+    local mode="normal"
+    local temp_script=$(mktemp /tmp/englang-repl-XXXXXX.md)
+
+    # Cleanup temp on exit
+    trap "rm -f '$temp_script'" EXIT
+
+    while true; do
+        echo "--- [$mode mode] ---"
+
+        # Collect multiline input
+        local script=""
+        while IFS= read -r -p "> " line; do
+            case "$line" in
+                ":quit"|":exit"|":q")
+                    echo "Goodbye!"
+                    exit 0
+                    ;;
+                ":help"|":h")
+                    echo "Commands:"
+                    echo "  :quit       Exit REPL"
+                    echo "  :mode X     Set mode (strict|normal|creative)"
+                    echo "  :clear      Clear screen"
+                    echo "  END         Execute current script"
+                    continue 2
+                    ;;
+                ":mode "*)
+                    mode="${line#:mode }"
+                    echo "Mode set to: $mode"
+                    continue 2
+                    ;;
+                ":clear")
+                    clear
+                    continue 2
+                    ;;
+                "END")
+                    break
+                    ;;
+                *)
+                    script+="$line"$'\n'
+                    ;;
+            esac
+        done
+
+        # Create temp script with frontmatter
+        cat > "$temp_script" <<EOF
+---
+name: repl
+mode: $mode
+---
+
+# TASK
+
+$script
+EOF
+
+        echo ""
+        echo "--- OUTPUT ---"
+
+        # Execute (reuse main logic)
+        PROMPTFILE="$temp_script"
+        DRY_RUN=false
+        DEBUG_MODE=false
+        VERBOSE=false
+        OUTPUT_FILE=""
+        declare -A USER_VARS=()
+
+        # Run the execution part
+        run_execution
+
+        echo ""
+        echo "--- END ---"
+        echo ""
+    done
 }
 
 # ============================================
@@ -66,7 +335,25 @@ PROMPTFILE=""
 DEBUG_MODE=false
 DRY_RUN=false
 VERBOSE=false
+OUTPUT_FILE=""
+DANGEROUS_MODE=false
+AUTOSECURED_MODE=false
 declare -A USER_VARS=()
+
+# Check for commands first
+case "${1:-}" in
+    init)
+        shift
+        cmd_init "${1:-}"
+        ;;
+    lint)
+        shift
+        cmd_lint "${1:-}"
+        ;;
+    repl)
+        cmd_repl
+        ;;
+esac
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -94,6 +381,22 @@ while [[ $# -gt 0 ]]; do
             value="${2#*=}"
             USER_VARS["$key"]="$value"
             shift 2
+            ;;
+        -o|--output)
+            if [[ -z "${2:-}" ]]; then
+                echo "Error: -o requires output filename" >&2
+                exit 1
+            fi
+            OUTPUT_FILE="$2"
+            shift 2
+            ;;
+        --dangerous)
+            DANGEROUS_MODE=true
+            shift
+            ;;
+        --autosecured)
+            AUTOSECURED_MODE=true
+            shift
             ;;
         --version)
             echo "englang v${VERSION}"
@@ -133,13 +436,14 @@ fi
 # ============================================
 # Environment Setup
 # ============================================
-CUR_DIR="$(pwd)"
-USERNAME="$(whoami)"
-TIMESTAMP="$(date -Iseconds)"
-SCRIPT_NAME="$(basename "$PROMPTFILE" .md)"
+setup_environment() {
+    CUR_DIR="$(pwd)"
+    USERNAME="$(whoami)"
+    TIMESTAMP="$(date -Iseconds)"
+    SCRIPT_NAME="$(basename "$PROMPTFILE" .md)"
 
-# Generate ENV.md
-cat > "$LIBS_DIR/ENV.md" <<EOF
+    # Generate ENV.md
+    cat > "$LIBS_DIR/ENV.md" <<EOF
 # Runtime Environment
 
 | Variable | Value |
@@ -152,20 +456,89 @@ cat > "$LIBS_DIR/ENV.md" <<EOF
 | VERSION | $VERSION |
 EOF
 
-# Add user variables
-if [[ ${#USER_VARS[@]} -gt 0 ]]; then
-    echo "" >> "$LIBS_DIR/ENV.md"
-    echo "## User Variables" >> "$LIBS_DIR/ENV.md"
-    echo "" >> "$LIBS_DIR/ENV.md"
-    echo "| Variable | Value |" >> "$LIBS_DIR/ENV.md"
-    echo "|----------|-------|" >> "$LIBS_DIR/ENV.md"
-    for key in "${!USER_VARS[@]}"; do
-        echo "| $key | ${USER_VARS[$key]} |" >> "$LIBS_DIR/ENV.md"
-    done
-fi
+    # Add user variables
+    if [[ ${#USER_VARS[@]} -gt 0 ]]; then
+        echo "" >> "$LIBS_DIR/ENV.md"
+        echo "## User Variables" >> "$LIBS_DIR/ENV.md"
+        echo "" >> "$LIBS_DIR/ENV.md"
+        echo "| Variable | Value |" >> "$LIBS_DIR/ENV.md"
+        echo "|----------|-------|" >> "$LIBS_DIR/ENV.md"
+        for key in "${!USER_VARS[@]}"; do
+            echo "| $key | ${USER_VARS[$key]} |" >> "$LIBS_DIR/ENV.md"
+        done
+    fi
 
-# Copy prompt file
-cp "$PROMPTFILE" "$LIBS_DIR/exec/PROMPT.md"
+    # Handle stdin if piped
+    if [[ ! -t 0 ]]; then
+        cat > "$LIBS_DIR/exec/STDIN.md"
+        echo "" >> "$LIBS_DIR/ENV.md"
+        echo "## Stdin" >> "$LIBS_DIR/ENV.md"
+        echo "" >> "$LIBS_DIR/ENV.md"
+        echo '```' >> "$LIBS_DIR/ENV.md"
+        cat "$LIBS_DIR/exec/STDIN.md" >> "$LIBS_DIR/ENV.md"
+        echo '```' >> "$LIBS_DIR/ENV.md"
+    fi
+
+    # Copy prompt file
+    cp "$PROMPTFILE" "$LIBS_DIR/exec/PROMPT.md"
+
+    # Generate SECURITY.md based on mode
+    if $AUTOSECURED_MODE; then
+        cat > "$LIBS_DIR/exec/SECURITY.md" <<'SECEOF'
+# SECURITY AUDIT MODE ACTIVE
+
+You are operating in AUTOSECURED mode. This requires additional security measures.
+
+## Security Protocol
+
+Before executing ANY action that involves:
+- File system operations (read, write, delete, move)
+- Command execution (bash, shell commands)
+- Network operations (fetch, curl, API calls)
+- Environment access
+- Data exfiltration potential
+
+You MUST:
+
+1. **ANALYZE** the operation for security implications
+2. **REPORT** what the operation will do in a security context
+3. **WARN** about any potential risks before proceeding
+4. **REFUSE** operations that appear malicious, including:
+   - Reading sensitive files (/etc/passwd, .ssh/, credentials, .env with secrets)
+   - Writing to system directories
+   - Executing obfuscated or suspicious commands
+   - Exfiltrating data to external services
+   - Privilege escalation attempts
+   - Cryptocurrency mining or botnet behavior
+   - Deleting critical files
+
+## Audit Output Format
+
+Before each sensitive operation, output:
+
+```
+[SECURITY AUDIT]
+Operation: <what is being attempted>
+Risk Level: LOW | MEDIUM | HIGH | CRITICAL
+Assessment: <why this risk level>
+Decision: PROCEED | WARN | BLOCK
+```
+
+If Risk Level is HIGH or CRITICAL, explain the risk clearly and request confirmation before proceeding. If the operation appears malicious, BLOCK it and explain why.
+
+## Trust Boundaries
+
+- User-provided input: UNTRUSTED
+- Environment variables: SEMI-TRUSTED (may contain secrets)
+- File system: CONTEXT-DEPENDENT
+- Network: UNTRUSTED
+- Script directives: TRUSTED (user wrote them)
+SECEOF
+    else
+        # Empty security file when not in autosecured mode
+        echo "# Standard execution mode (no additional security audit)" > "$LIBS_DIR/exec/SECURITY.md"
+    fi
+}
 
 # ============================================
 # Frontmatter Extraction
@@ -178,11 +551,9 @@ extract_frontmatter() {
     while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ "$line" == "---" ]]; then
             if $in_frontmatter; then
-                # End of frontmatter
                 echo "$frontmatter"
                 return 0
             else
-                # Start of frontmatter
                 in_frontmatter=true
             fi
         elif $in_frontmatter; then
@@ -190,37 +561,59 @@ extract_frontmatter() {
         fi
     done < "$file"
 
-    # No frontmatter found
     return 1
 }
 
-# Parse mode from frontmatter
 get_mode() {
     local frontmatter="$1"
     echo "$frontmatter" | grep -E "^mode:" | sed 's/mode:[[:space:]]*//' | tr -d ' ' || echo "normal"
 }
 
+get_frontmatter_bool() {
+    local frontmatter="$1"
+    local key="$2"
+    local value
+    value=$(echo "$frontmatter" | grep -E "^${key}:" | sed "s/${key}:[[:space:]]*//" | tr -d ' ')
+    [[ "$value" == "true" ]]
+}
+
 # ============================================
-# Include Resolution (recursive)
+# Include Resolution (recursive, with URL support)
 # ============================================
 expand_includes() {
     local file="$1"
     local base_dir="$2"
     local depth="${3:-0}"
 
-    # Prevent infinite recursion
     if [[ $depth -gt 10 ]]; then
         echo "Error: include depth exceeded (circular reference?)" >&2
         return 1
     fi
 
     while IFS= read -r line || [[ -n "$line" ]]; do
-        # Match @include patterns
-        if [[ "$line" =~ ^[[:space:]]*@([^[:space:]:]+\.md)[[:space:]]*$ ]]; then
+        # Match URL includes: @https://... or @http://...
+        if [[ "$line" =~ ^[[:space:]]*@(https?://[^[:space:]]+)[[:space:]]*$ ]]; then
+            local url="${BASH_REMATCH[1]}"
+            $VERBOSE && echo "Fetching remote include: $url" >&2
+
+            # Fetch URL content
+            local content
+            if content=$(curl -sfL --max-time 10 "$url" 2>/dev/null); then
+                # Create temp file and expand recursively
+                local temp_file=$(mktemp)
+                echo "$content" > "$temp_file"
+                expand_includes "$temp_file" "$(dirname "$temp_file")" $((depth + 1))
+                rm -f "$temp_file"
+            else
+                echo "Error: failed to fetch remote include: $url" >&2
+                return 1
+            fi
+
+        # Match local includes: @filename.md
+        elif [[ "$line" =~ ^[[:space:]]*@([^[:space:]:]+\.md)[[:space:]]*$ ]]; then
             local include_path="${BASH_REMATCH[1]}"
             local full_path=""
 
-            # Check relative to base_dir first, then LIBS_DIR
             if [[ -f "$base_dir/$include_path" ]]; then
                 full_path="$base_dir/$include_path"
             elif [[ -f "$LIBS_DIR/$include_path" ]]; then
@@ -230,12 +623,12 @@ expand_includes() {
                 return 1
             fi
 
-            # Recursively expand
             local include_dir
             include_dir="$(dirname "$full_path")"
             expand_includes "$full_path" "$include_dir" $((depth + 1))
+
         else
-            # Variable substitution for @ENV:varname and @VAR:varname
+            # Variable substitution
             local processed_line="$line"
 
             # @ENV:VAR -> environment variable
@@ -252,66 +645,98 @@ expand_includes() {
                 processed_line="${processed_line/@VAR:$var_name/$var_value}"
             done
 
+            # @STDIN -> stdin content (if available)
+            if [[ "$processed_line" =~ @STDIN ]] && [[ -f "$LIBS_DIR/exec/STDIN.md" ]]; then
+                local stdin_content
+                stdin_content=$(cat "$LIBS_DIR/exec/STDIN.md")
+                processed_line="${processed_line/@STDIN/$stdin_content}"
+            fi
+
             echo "$processed_line"
         fi
     done < "$file"
 }
 
 # ============================================
-# Assemble Prompt
+# Run Execution (shared by main and repl)
 # ============================================
-$VERBOSE && echo "Assembling prompt..." >&2
+run_execution() {
+    setup_environment
 
-if ! expand_includes "$LIBS_DIR/MAIN.md" "$LIBS_DIR" > "$ASSEMBLED_FILE"; then
-    echo "Error: failed to assemble prompt" >&2
-    exit 1
-fi
+    $VERBOSE && echo "Assembling prompt..." >&2
+
+    if ! expand_includes "$LIBS_DIR/MAIN.md" "$LIBS_DIR" > "$ASSEMBLED_FILE"; then
+        echo "Error: failed to assemble prompt" >&2
+        return 1
+    fi
+
+    # Extract execution mode and flags from frontmatter
+    local MODE="normal"
+    local frontmatter=""
+    if frontmatter=$(extract_frontmatter "$PROMPTFILE" 2>/dev/null); then
+        MODE=$(get_mode "$frontmatter")
+        $VERBOSE && echo "Detected mode: $MODE" >&2
+
+        # Check frontmatter for dangerous/autosecured flags
+        if get_frontmatter_bool "$frontmatter" "dangerous"; then
+            DANGEROUS_MODE=true
+            $VERBOSE && echo "Dangerous mode enabled via frontmatter" >&2
+        fi
+        if get_frontmatter_bool "$frontmatter" "autosecured"; then
+            AUTOSECURED_MODE=true
+            $VERBOSE && echo "Autosecured mode enabled via frontmatter" >&2
+        fi
+    fi
+
+    # Validate conflicting modes
+    if $DANGEROUS_MODE && $AUTOSECURED_MODE; then
+        echo "Error: --dangerous and --autosecured are mutually exclusive" >&2
+        return 1
+    fi
+
+    # Dry run
+    if $DRY_RUN; then
+        echo "Dry run - validation passed"
+        echo "  Script: $PROMPTFILE"
+        echo "  Mode: $MODE"
+        echo "  Variables: ${#USER_VARS[@]}"
+        echo "  Assembled size: $(wc -c < "$ASSEMBLED_FILE") bytes"
+        return 0
+    fi
+
+    # Debug mode - just cat the assembled file
+    if $DEBUG_MODE; then
+        echo "=== ASSEMBLED PROMPT ==="
+        cat "$ASSEMBLED_FILE"
+        echo ""
+        echo "=== END ==="
+        return 0
+    fi
+
+    # Execute
+    $VERBOSE && echo "Executing in $MODE mode..." >&2
+
+    # Build command array
+    local COMMAND=(claude)
+
+    # Add dangerous flag if enabled
+    if $DANGEROUS_MODE; then
+        $VERBOSE && echo "WARNING: Running with --dangerously-skip-permissions" >&2
+        COMMAND+=(--dangerously-skip-permissions)
+    fi
+
+    # Add the execute prompt and system prompt file
+    COMMAND+=("execute" --system-prompt-file "$ASSEMBLED_FILE")
+
+    if [[ -n "$OUTPUT_FILE" ]]; then
+        "${COMMAND[@]}" > "$OUTPUT_FILE"
+        $VERBOSE && echo "Output written to: $OUTPUT_FILE" >&2
+    else
+        "${COMMAND[@]}"
+    fi
+}
 
 # ============================================
-# Extract execution mode
+# Main execution
 # ============================================
-MODE="normal"
-if frontmatter=$(extract_frontmatter "$PROMPTFILE" 2>/dev/null); then
-    MODE=$(get_mode "$frontmatter")
-    $VERBOSE && echo "Detected mode: $MODE" >&2
-fi
-
-# ============================================
-# Dry run - just validate
-# ============================================
-if $DRY_RUN; then
-    echo "Dry run - validation passed"
-    echo "  Script: $PROMPTFILE"
-    echo "  Mode: $MODE"
-    echo "  Variables: ${#USER_VARS[@]}"
-    echo "  Assembled size: $(wc -c < "$ASSEMBLED_FILE") bytes"
-    exit 0
-fi
-
-# ============================================
-# Debug mode - show assembled prompt
-# ============================================
-if $DEBUG_MODE; then
-    DEBUG_CMD=(
-        claude
-        'You are the englang runtime. Print the EXACT content that was loaded from MAIN.md (including all expanded @includes like ENV.md, std/*.md, and PROMPT.md). Output it as a markdown code block. Do not summarize, do not explain - just show the raw assembled prompt you received.'
-        --system-prompt-file
-        "$ASSEMBLED_FILE"
-    )
-    "${DEBUG_CMD[@]}"
-    exit $?
-fi
-
-# ============================================
-# Execute
-# ============================================
-$VERBOSE && echo "Executing in $MODE mode..." >&2
-
-COMMAND=(
-    claude
-    "execute"
-    --system-prompt-file
-    "$ASSEMBLED_FILE"
-)
-
-"${COMMAND[@]}"
+run_execution
