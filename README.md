@@ -348,6 +348,29 @@ chmod +x my-script.md
 ./my-script.md
 ```
 
+## Benchmarks
+
+We include a determinism benchmark suite to measure output consistency across multiple runs.
+
+```bash
+./benchmark/run-benchmark.sh 5    # Run each script 5 times
+```
+
+### Results
+
+![Benchmark Results](benchmark/results/latest/benchmark_plot.png)
+
+| Script | Score | Notes |
+|--------|-------|-------|
+| deterministic-math | 100% | Pure computation is fully deterministic |
+| deterministic-transform | ~50% | Data transformation shows some variance |
+| deterministic-classification | 0% | Category assignment varies between runs |
+| deterministic-text | 0% | Creative text (haiku) is highly variable |
+
+**Key insight**: LLMs are inherently non-deterministic. The `@DETERMINISTIC` directive helps with structured/computational tasks but cannot guarantee consistency for creative or interpretive outputs. For maximum reliability, prefer constrained outputs (`@CHOICE`, `@FORMAT:json`) over open-ended generation.
+
+See [benchmark/README.md](benchmark/README.md) for details.
+
 ## Project Structure
 
 ```
@@ -363,6 +386,7 @@ englang/
 │           ├── output.md
 │           └── constraints.md
 ├── examples/             # Example scripts
+├── benchmark/            # Determinism benchmarks
 └── docs/
     └── SPECIFICATION.md  # Full language spec
 ```
