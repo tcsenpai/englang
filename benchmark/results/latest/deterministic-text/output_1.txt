@@ -1,3 +1,3 @@
-Syntax transforms thoughts
-Tracing bugs through endless loops
-Code compiles at last
+Code writes itself,
+Bugs hide in logic's shadows,
+Tests pass, joy arrives.

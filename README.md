@@ -356,18 +356,18 @@ We include a determinism benchmark suite to measure output consistency across mu
 ./benchmark/run-benchmark.sh 5    # Run each script 5 times
 ```
 
-### Results
+### Results (5 iterations)
 
 ![Benchmark Results](benchmark/results/latest/benchmark_plot.png)
 
-| Script | Score | Notes |
-|--------|-------|-------|
-| deterministic-math | 100% | Pure computation is fully deterministic |
-| deterministic-transform | ~50% | Data transformation shows some variance |
-| deterministic-classification | 0% | Category assignment varies between runs |
-| deterministic-text | 0% | Creative text (haiku) is highly variable |
+| Script | Score | Unique Outputs | Notes |
+|--------|-------|----------------|-------|
+| deterministic-math | 100% | 1 | Pure computation is fully deterministic |
+| deterministic-classification | 25% | 2 | Category assignment shows variance |
+| deterministic-transform | 0% | 2 | Data transformation inconsistent |
+| deterministic-text | 0% | 5 | Creative text (haiku) never repeats |
 
-**Key insight**: LLMs are inherently non-deterministic. The `@DETERMINISTIC` directive helps with structured/computational tasks but cannot guarantee consistency for creative or interpretive outputs. For maximum reliability, prefer constrained outputs (`@CHOICE`, `@FORMAT:json`) over open-ended generation.
+**Key insight**: LLMs are inherently non-deterministic. The `@DETERMINISTIC` directive helps with structured/computational tasks (math achieved 100%) but cannot guarantee consistency for creative or interpretive outputs. For maximum reliability, prefer constrained outputs (`@CHOICE`, `@FORMAT:json`) over open-ended generation.
 
 See [benchmark/README.md](benchmark/README.md) for details.
 

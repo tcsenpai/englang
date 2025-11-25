@@ -1,8 +1,8 @@
 # englang Determinism Benchmark Report
 
-**Generated:** 2025-11-25 15:53:50
-**Benchmark Run:** 20251125_155022
-**Iterations per script:** 3
+**Generated:** 2025-11-25 16:05:55
+**Benchmark Run:** 20251125_160118
+**Iterations per script:** 5
 
 ## Overall Summary
 
@@ -15,10 +15,10 @@
 ## Determinism Score by Script
 
 ```
-deterministic-classification   [###################-----------] 66.0%
+deterministic-classification   [#######-----------------------] 25.0%
 deterministic-math             [##############################] 100.0%
-deterministic-text             [#########---------------------] 33.0%
-deterministic-transform        [###################-----------] 66.0%
+deterministic-text             [------------------------------] 0.0%
+deterministic-transform        [------------------------------] 0.0%
 ```
 
 ## Detailed Results
@@ -28,11 +28,11 @@ deterministic-transform        [###################-----------] 66.0%
 | Metric | Value |
 |--------|-------|
 | Status | NON-DETERMINISTIC |
-| Determinism Score | 66.0% |
-| Iterations | 3 |
-| Matching Outputs | 2 |
+| Determinism Score | 25.0% |
+| Iterations | 5 |
+| Matching Outputs | 1 |
 | Unique Outputs | 2 |
-| Avg Execution Time | 14.338s |
+| Avg Execution Time | 14.209s |
 
 ### deterministic-math [PASS]
 
@@ -40,42 +40,42 @@ deterministic-transform        [###################-----------] 66.0%
 |--------|-------|
 | Status | DETERMINISTIC |
 | Determinism Score | 100.0% |
-| Iterations | 3 |
-| Matching Outputs | 3 |
+| Iterations | 5 |
+| Matching Outputs | 4 |
 | Unique Outputs | 1 |
-| Avg Execution Time | 15.353s |
+| Avg Execution Time | 13.926s |
 
 ### deterministic-text [FAIL]
 
 | Metric | Value |
 |--------|-------|
 | Status | NON-DETERMINISTIC |
-| Determinism Score | 33.0% |
-| Iterations | 3 |
-| Matching Outputs | 1 |
-| Unique Outputs | 3 |
-| Avg Execution Time | 13.325s |
+| Determinism Score | 0.0% |
+| Iterations | 5 |
+| Matching Outputs | 0 |
+| Unique Outputs | 5 |
+| Avg Execution Time | 12.590s |
 
 ### deterministic-transform [FAIL]
 
 | Metric | Value |
 |--------|-------|
 | Status | NON-DETERMINISTIC |
-| Determinism Score | 66.0% |
-| Iterations | 3 |
-| Matching Outputs | 2 |
+| Determinism Score | 0.0% |
+| Iterations | 5 |
+| Matching Outputs | 0 |
 | Unique Outputs | 2 |
-| Avg Execution Time | 13.379s |
+| Avg Execution Time | 14.491s |
 
 ## Performance Summary
 
 ```
 Script                             Avg Time          Status
 ------------------------------------------------------------
-deterministic-classification        14.338s NON-DETERMINISTIC
-deterministic-math                  15.353s   DETERMINISTIC
-deterministic-text                  13.325s NON-DETERMINISTIC
-deterministic-transform             13.379s NON-DETERMINISTIC
+deterministic-classification        14.209s NON-DETERMINISTIC
+deterministic-math                  13.926s   DETERMINISTIC
+deterministic-text                  12.590s NON-DETERMINISTIC
+deterministic-transform             14.491s NON-DETERMINISTIC
 ```
 
 ## Methodology
