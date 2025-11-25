@@ -72,26 +72,28 @@ for script in "$SCRIPTS_DIR"/*.md; do
         HASH=$(sha256sum "$OUTPUT_FILE" | cut -d' ' -f1)
         HASHES+=("$HASH")
 
-        # Store first output for comparison
+        # Store first output for comparison (reference)
         if [ $i -eq 1 ]; then
             FIRST_HASH="$HASH"
-        fi
-
-        # Check if matches first
-        if [ "$HASH" == "$FIRST_HASH" ]; then
-            MATCH_COUNT=$((MATCH_COUNT + 1))
-        fi
-
-        echo -n "  Run $i: "
-        if [ "$HASH" == "$FIRST_HASH" ]; then
-            echo -e "${GREEN}MATCH${NC} (${ELAPSED}s)"
+            echo "  Run $i: REFERENCE (${ELAPSED}s)"
         else
-            echo -e "${RED}DIFFER${NC} (${ELAPSED}s)"
+            # Only count matches for runs 2+
+            echo -n "  Run $i: "
+            if [ "$HASH" == "$FIRST_HASH" ]; then
+                MATCH_COUNT=$((MATCH_COUNT + 1))
+                echo -e "${GREEN}MATCH${NC} (${ELAPSED}s)"
+            else
+                echo -e "${RED}DIFFER${NC} (${ELAPSED}s)"
+            fi
         fi
     done
 
-    # Calculate determinism score
-    DETERMINISM_SCORE=$(echo "scale=2; $MATCH_COUNT / $ITERATIONS * 100" | bc)
+    # Calculate determinism score (matches out of runs 2-N, i.e., ITERATIONS-1)
+    if [ $ITERATIONS -gt 1 ]; then
+        DETERMINISM_SCORE=$(echo "scale=2; $MATCH_COUNT / ($ITERATIONS - 1) * 100" | bc)
+    else
+        DETERMINISM_SCORE=100
+    fi
 
     # Calculate average time
     TOTAL_TIME=0
@@ -103,14 +105,15 @@ for script in "$SCRIPTS_DIR"/*.md; do
     # Count unique outputs
     UNIQUE_HASHES=$(printf '%s\n' "${HASHES[@]}" | sort -u | wc -l)
 
-    # Determine status
-    if [ "$MATCH_COUNT" -eq "$ITERATIONS" ]; then
+    # Determine status (all runs 2-N must match run 1)
+    EXPECTED_MATCHES=$((ITERATIONS - 1))
+    if [ "$MATCH_COUNT" -eq "$EXPECTED_MATCHES" ]; then
         STATUS="DETERMINISTIC"
         TOTAL_DETERMINISTIC=$((TOTAL_DETERMINISTIC + 1))
-        echo -e "  Result: ${GREEN}100% DETERMINISTIC${NC}"
+        echo -e "  Result: ${GREEN}100% DETERMINISTIC${NC} ($MATCH_COUNT/$EXPECTED_MATCHES matches)"
     else
         STATUS="NON-DETERMINISTIC"
-        echo -e "  Result: ${RED}${DETERMINISM_SCORE}% consistent${NC} ($UNIQUE_HASHES unique outputs)"
+        echo -e "  Result: ${RED}${DETERMINISM_SCORE}% consistent${NC} ($MATCH_COUNT/$EXPECTED_MATCHES matches, $UNIQUE_HASHES unique outputs)"
     fi
 
     echo "  Avg time: ${AVG_TIME}s"
