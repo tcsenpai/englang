@@ -1,0 +1,69 @@
+{
+  "benchmark_info": {
+    "timestamp": "20251125_155022",
+    "iterations": 3
+  },
+  "scripts": {
+    "deterministic-classification": {
+      "iterations": 3,
+      "success_count": 3,
+      "match_count": 2,
+      "unique_outputs": 2,
+      "determinism_score": 66.0,
+      "avg_time_seconds": 14.338,
+      "status": "NON-DETERMINISTIC",
+      "hashes": [
+        "70339ce6e377a6a27fe19a1ecdac3d2f07cb185a9f771eea330f959a1e8418f6",
+        "4f9b6a0f58b02f200618340d4e9442987f66fad33997341c406a40ba30ddb811",
+        "70339ce6e377a6a27fe19a1ecdac3d2f07cb185a9f771eea330f959a1e8418f6"
+      ]
+    },
+    "deterministic-math": {
+      "iterations": 3,
+      "success_count": 3,
+      "match_count": 3,
+      "unique_outputs": 1,
+      "determinism_score": 100.0,
+      "avg_time_seconds": 15.353,
+      "status": "DETERMINISTIC",
+      "hashes": [
+        "4e075614a4032943cfd6254481b9cf2a654d8be4b30a9dca8b19a1fb1b19eb67",
+        "4e075614a4032943cfd6254481b9cf2a654d8be4b30a9dca8b19a1fb1b19eb67",
+        "4e075614a4032943cfd6254481b9cf2a654d8be4b30a9dca8b19a1fb1b19eb67"
+      ]
+    },
+    "deterministic-text": {
+      "iterations": 3,
+      "success_count": 3,
+      "match_count": 1,
+      "unique_outputs": 3,
+      "determinism_score": 33.0,
+      "avg_time_seconds": 13.325,
+      "status": "NON-DETERMINISTIC",
+      "hashes": [
+        "c04fbb28823e5dc6d428351f0f7bad52263136e8fda1cb0c04bb3eb70ecb0b1a",
+        "7dc479be5a2bb473953faab31f74d49eecb16c08d17d2bce14e76d219055def3",
+        "12a76a6c2cc69090927ece00d41aee23d3dc4df336b960df06b0217c4402e20a"
+      ]
+    },
+    "deterministic-transform": {
+      "iterations": 3,
+      "success_count": 3,
+      "match_count": 2,
+      "unique_outputs": 2,
+      "determinism_score": 66.0,
+      "avg_time_seconds": 13.379,
+      "status": "NON-DETERMINISTIC",
+      "hashes": [
+        "d1925ec1639846490a6f5ff53f384a1a32802ece67a76439782054cfa578a25d",
+        "3aa6823ae7709057ac013768c470e299daa45da7deade9fd943346162c0c6cd5",
+        "d1925ec1639846490a6f5ff53f384a1a32802ece67a76439782054cfa578a25d"
+      ]
+    }
+  },
+  "overall": {
+    "total_scripts": 4,
+    "deterministic_scripts": 1,
+    "overall_score": 25.0
+  }
+}

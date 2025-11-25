@@ -1,0 +1,3 @@
+Keyboard tapping code
+Finding bugs takes patience
+Program runs clean now

@@ -1,0 +1,3 @@
+Syntax transforms thoughts
+Tracing bugs through endless loops
+Code compiles at last

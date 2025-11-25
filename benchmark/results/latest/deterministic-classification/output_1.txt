@@ -1,0 +1,12 @@
+```json
+{
+  "Apple": "fruit",
+  "Carrot": "vegetable",
+  "Chicken": "protein",
+  "Rice": "grain",
+  "Banana": "fruit",
+  "Broccoli": "vegetable",
+  "Salmon": "protein",
+  "Wheat": "grain"
+}
+```

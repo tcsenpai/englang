@@ -1,0 +1,5 @@
+# Ignore individual benchmark runs
+results/run_*/
+
+# Keep the latest results (copied manually)
+!results/latest/

@@ -1,0 +1,38 @@
+```json
+{
+  "classifications": [
+    {
+      "item": "Apple",
+      "category": "fruit"
+    },
+    {
+      "item": "Carrot",
+      "category": "vegetable"
+    },
+    {
+      "item": "Chicken",
+      "category": "protein"
+    },
+    {
+      "item": "Rice",
+      "category": "grain"
+    },
+    {
+      "item": "Banana",
+      "category": "fruit"
+    },
+    {
+      "item": "Broccoli",
+      "category": "vegetable"
+    },
+    {
+      "item": "Salmon",
+      "category": "protein"
+    },
+    {
+      "item": "Wheat",
+      "category": "grain"
+    }
+  ]
+}
+```

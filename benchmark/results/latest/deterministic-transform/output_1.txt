@@ -1,0 +1,19 @@
+```json
+[
+  {
+    "name": "ALICE",
+    "age": 50,
+    "processed": true
+  },
+  {
+    "name": "BOB",
+    "age": 60,
+    "processed": true
+  },
+  {
+    "name": "CHARLIE",
+    "age": 70,
+    "processed": true
+  }
+]
+```
